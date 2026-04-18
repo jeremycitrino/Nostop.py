@@ -1,0 +1,73 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git zip unzip openjdk-17-jdk \
+            python3-pip autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev
+      - name: Install buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython
+      - name: Create main.py
+        run: |
+          cat > main.py << 'EOF'
+          from kivy.app import App
+          from kivy.uix.webview import WebView
+          from kivy.clock import Clock
+          import threading
+          import subprocess
+          import os
+
+          class TradingBotApp(App):
+              def build(self):
+                  threading.Thread(target=self.start_bot, daemon=True).start()
+                  Clock.schedule_once(lambda dt: None, 3)
+                  return WebView(url='http://localhost:8888')
+              
+              def start_bot(self):
+                  os.chdir(os.path.dirname(os.path.abspath(__file__)))
+                  subprocess.run(['python', 'nostop.py'], check=False)
+
+          if __name__ == '__main__':
+              TradingBotApp().run()
+          EOF
+      - name: Configure buildozer
+        run: |
+          buildozer init
+          sed -i \
+            -e 's/^title = .*/title = Trading Bot/' \
+            -e 's/^package.name = .*/package.name = tradingbot/' \
+            -e 's/^package.domain = .*/package.domain = org.tradingbot/' \
+            -e 's/^version = .*/version = 0.1/' \
+            -e 's/^requirements = .*/requirements = python3,kivy,pandas,numpy,yfinance/' \
+            -e 's/^android.permissions = .*/android.permissions = INTERNET, ACCESS_NETWORK_STATE, WAKE_LOCK/' \
+            -e 's/^#*android.bootstrap = .*/android.bootstrap = webview/' \
+            -e 's/^orientation = .*/orientation = landscape/' \
+            buildozer.spec
+          # Remove problematic libtinfo5 reference if it appears in spec (not needed)
+          echo "android.ndk = 25b" >> buildozer.spec
+          echo "android.sdk = 30" >> buildozer.spec
+      - name: Build APK
+        run: buildozer -v android debug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-bot-apk
+          path: bin/*.apk
