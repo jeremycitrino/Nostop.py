@@ -1,0 +1,81 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git zip unzip openjdk-17-jdk \
+            python3-pip autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo5 cmake libffi-dev libssl-dev
+
+      - name: Install buildozer and Cython
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython
+
+      - name: Create WebView launcher (main.py)
+        run: |
+          cat > main.py << 'EOF'
+          from kivy.app import App
+          from kivy.uix.webview import WebView
+          from kivy.clock import Clock
+          import threading
+          import subprocess
+          import os
+
+          class TradingBotApp(App):
+              def build(self):
+                  threading.Thread(target=self.start_bot, daemon=True).start()
+                  Clock.schedule_once(lambda dt: None, 3)
+                  return WebView(url='http://localhost:8888')
+              
+              def start_bot(self):
+                  os.chdir(os.path.dirname(os.path.abspath(__file__)))
+                  subprocess.run(['python', 'nostop.py'], check=False)
+
+          if __name__ == '__main__':
+              TradingBotApp().run()
+          EOF
+
+      - name: Create buildozer.spec
+        run: |
+          buildozer init
+          sed -i \
+            -e 's/^title = .*/title = Trading Bot/' \
+            -e 's/^package.name = .*/package.name = tradingbot/' \
+            -e 's/^package.domain = .*/package.domain = org.example.tradingbot/' \
+            -e 's/^version = .*/version = 0.1/' \
+            -e 's/^requirements = .*/requirements = python3,kivy,yfinance,pandas,numpy/' \
+            -e 's/^android.permissions = .*/android.permissions = INTERNET, ACCESS_NETWORK_STATE, WAKE_LOCK, FOREGROUND_SERVICE/' \
+            -e 's/^#*android.bootstrap = .*/android.bootstrap = webview/' \
+            -e 's/^orientation = .*/orientation = landscape/' \
+            buildozer.spec
+          grep -q "^android.bootstrap" buildozer.spec || echo "android.bootstrap = webview" >> buildozer.spec
+
+      - name: Build APK
+        run: |
+          buildozer -v android debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-bot-apk
+          path: bin/*.apk
