@@ -1,0 +1,55 @@
+name: Build APK
+
+on: 
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build APK
+        run: |
+          # Update buildozer.spec with correct requirements
+          cat > buildozer.spec << 'EOF'
+          [app]
+          title = Trading Bot
+          package.name = tradingbot
+          package.domain = org.example.tradingbot
+          version = 1.0
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas,json,db
+          source.exclude_exts = spec
+          source.exclude_dirs = tests, bin, build, .buildozer, .git, __pycache__, venv
+          requirements = python3,kivy==2.1.0,pyjnius,android,plyer,requests,setuptools==58.0.0
+          orientation = portrait
+          fullscreen = 0
+          android.permissions = INTERNET, FOREGROUND_SERVICE, WAKE_LOCK
+          android.api = 33
+          android.minapi = 21
+          android.ndk = 25b
+          android.use_androidx = True
+          android.copy_libs = True
+          android.archs = arm64-v8a
+          android.wakelock = True
+          android.foreground = True
+          log_level = 2
+          build_dir = ./.buildozer
+          bin_dir = ./bin
+          android.accept_sdk_license = True
+          EOF
+
+          # Build the APK
+          yes y | buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradingbot-apk
+          path: bin/*.apk
