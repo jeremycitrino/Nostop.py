@@ -1,0 +1,76 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git zip unzip \
+          openjdk-17-jdk \
+          autoconf libtool pkg-config \
+          zlib1g-dev libncurses5-dev libncursesw5-dev \
+          libffi-dev libssl-dev \
+          cmake ccache
+    
+    - name: Install buildozer
+      run: |
+        pip install --upgrade pip
+        pip install buildozer cython
+    
+    - name: Accept Android SDK licenses
+      run: |
+        # Create a dummy license acceptance
+        mkdir -p ~/.android
+        echo "### Licenses Accepted ###" > ~/.android/licenses/android-sdk-license
+        echo "8933bad161af4178b1185d1a37fbf41ea5269c55" >> ~/.android/licenses/android-sdk-license
+        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> ~/.android/licenses/android-sdk-license
+        echo "84831b9409646a918e30573bab4c9c91346d8abd" >> ~/.android/licenses/android-sdk-license
+        
+        # Alternative method using sdkmanager if available
+        mkdir -p /usr/local/lib/android/sdk/cmdline-tools/latest/bin/
+        
+    - name: Build APK with license acceptance
+      run: |
+        # Set environment variables
+        export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/tools/bin
+        
+        # Build with yes command to accept licenses
+        yes | buildozer android debug || true
+        
+        # Try building again if first attempt set up licenses
+        buildozer android debug
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: TradingBot-APK
+        path: bin/*.apk
+        if-no-files-found: warn
+    
+    - name: Upload build logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: buildozer-logs
+        path: |
+          .buildozer/logs/
+          .buildozer/
+          *.log
